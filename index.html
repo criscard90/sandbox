@@ -93,7 +93,7 @@
 
         const engine = Engine.create({ enableSleeping: false });
         const world = engine.world;
-        world.gravity.y = 1.4; // Gravità leggermente aumentata per un feeling più reattivo
+        world.gravity.y = 1.4; // Gravità ottimizzata per il gameplay
 
         const render = Render.create({
             element: document.body,
@@ -124,7 +124,15 @@
         let currentPoints = [];
         let isDrawing = false;
         let isStaticMode = false;
-        let spawnedObjects = []; // Contiene i gruppi di linee o palle per l'Undo
+        let spawnedObjects = []; // Registro per l'Undo
+
+        // Funzione per generare un colore casuale dell'arcobaleno
+        function getRainbowColor() {
+            // Sceglie una tonalità casuale tra 0 e 360 gradi dello spettro HSL
+            const hue = Math.floor(Math.random() * 360);
+            // Saturazione 95% e Luminosità 55% garantiscono colori accesi e vividi
+            return `hsl(${hue}, 95%, 55%)`;
+        }
 
         // UI Eventi
         const modeBtn = document.getElementById('modeBtn');
@@ -151,25 +159,29 @@
 
         document.getElementById('spawnBallBtn').addEventListener('click', (e) => {
             e.stopPropagation();
+            
+            // Genera il colore arcobaleno dinamico per questa specifica pallina
+            const randomRainbowColor = getRainbowColor();
+
             const ball = Bodies.circle(window.innerWidth / 2, 80, 24, {
                 density: 0.01,
-                restitution: 0.4,
+                restitution: 0.5, // Rimbalzo moderato
                 friction: 0.1,
-                render: { fillStyle: '#e67e22' }
+                render: { 
+                    fillStyle: randomRainbowColor
+                }
             });
             Composite.add(world, ball);
             spawnedObjects.push(ball);
         });
 
-        // --- GESTIONE INPUT OTTIMIZZATA PER MOBILE ---
+        // --- GESTIONE INPUT PER MOBILE ---
         function getPointerPos(e) {
-            // Supporto nativo sia per touch che per mouse
             const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
             const clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
             return { x: clientX, y: clientY };
         }
 
-        // Usiamo i PointerEvents standard, eccellenti su mobile
         window.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.toolbar')) return;
             isDrawing = true;
@@ -183,9 +195,7 @@
             const pos = getPointerPos(e);
             const lastPos = currentPoints[currentPoints.length - 1];
             
-            // Calcola la distanza dall'ultimo punto registrato
             const dist = Math.hypot(pos.x - lastPos.x, pos.y - lastPos.y);
-            // Salva il punto solo se ci si è mossi abbastanza (riduce i calcoli inutili)
             if (dist > 5) { 
                 currentPoints.push(pos);
             }
@@ -201,12 +211,11 @@
             currentPoints = [];
         });
 
-        // --- CREAZIONE LINEA ROBUSTA A SEGMENTI CONCATENATI ---
+        // --- CREAZIONE LINEA ROBUSTA A SEGMENTI ---
         function creaOggettoFisicoSegmentato(punti) {
             const spessore = 10;
             const segmenti = [];
 
-            // Opzioni estetiche e fisiche dei segmenti
             const opzioniFisiche = {
                 isStatic: isStaticMode,
                 density: 0.004,
@@ -217,7 +226,6 @@
                 }
             };
 
-            // Generiamo un rettangolo per ogni coppia di punti consecutivi
             for (let i = 0; i < punti.length - 1; i++) {
                 const p1 = punti[i];
                 const p2 = punti[i + 1];
@@ -232,15 +240,11 @@
                 segmenti.push(segmento);
             }
 
-            // Se l'oggetto è dinamico, raggruppiamo i segmenti in un unico corpo rigido composto
-            // in modo che cadano insieme e mantengano la forma del disegno
             if (segmenti.length > 0) {
                 let corpoFinale;
                 if (isStaticMode) {
-                    // Per gli oggetti statici possiamo semplicemente aggiungerli al mondo singolarmente
                     corpoFinale = Body.create({ parts: segmenti, isStatic: true });
                 } else {
-                    // Per gli oggetti dinamici, formiamo un corpo composto unico
                     corpoFinale = Body.create({ parts: segmenti });
                 }
                 
@@ -249,7 +253,7 @@
             }
         }
 
-        // --- DISEGNO DELLA LINEA GUIDA DURANTE IL TRASCINAMENTO ---
+        // --- DISEGNO DELLA LINEA GUIDA TEMPORANEA ---
         Matter.Events.on(render, 'afterRender', () => {
             if (isDrawing && currentPoints.length > 1) {
                 ctx.beginPath();
@@ -265,7 +269,7 @@
             }
         });
 
-        // Ridimensionamento dinamico dello schermo
+        // Ridimensionamento dello schermo
         window.addEventListener('resize', () => {
             render.canvas.width = window.innerWidth;
             render.canvas.height = window.innerHeight;
