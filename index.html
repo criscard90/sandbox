@@ -4,10 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Physics Sandbox PWA</title>
-    <!-- Carichiamo Matter.js e il plugin per decomporre i poligoni concavi -->
+    <!-- Carichiamo solo la libreria Matter.js principale -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/poly-decomp@0.3.0/bezier.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/poly-decomp@0.3.0/build/decomp.min.js"></script>
     
     <style>
         * {
@@ -16,6 +14,8 @@
             -webkit-user-select: none;
             margin: 0;
             padding: 0;
+            /* Blocca i gesti nativi del browser su qualsiasi elemento */
+            touch-action: none; 
         }
         body, html {
             width: 100%;
@@ -30,6 +30,8 @@
             top: 0;
             left: 0;
             z-index: 1;
+            /* Forza la canvas a non subire lo scroll della pagina */
+            touch-action: none; 
         }
         /* UI Overlay superiore */
         .toolbar {
@@ -40,11 +42,13 @@
             z-index: 10;
             display: flex;
             gap: 10px;
-            background: rgba(255, 255, 255, 0.85);
+            background: rgba(255, 255, 255, 0.9);
             backdrop-filter: blur(10px);
             padding: 8px 15px;
             border-radius: 30px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            /* Permette i tocchi sui pulsanti della toolbar */
+            touch-action: auto; 
         }
         button {
             border: none;
@@ -60,6 +64,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            touch-action: auto;
         }
         button:active {
             transform: scale(0.95);
@@ -84,19 +89,11 @@
     </div>
 
     <script>
-        // --- CONFIGURAZIONE MOTORE FISICO ---
-        const { Engine, Render, Runner, Bodies, Composite, Vertices, Body } = Matter;
-        
-        // Forziamo poly-decomp globale per permettere a Matter.js di gestire forme geometriche complesse e concave
-        window.decomp = decomp;
+        const { Engine, Render, Runner, Bodies, Composite, Body } = Matter;
 
-        const engine = Engine.create({
-            enableSleeping: false
-        });
+        const engine = Engine.create({ enableSleeping: false });
         const world = engine.world;
-
-        // Ottimizzazione gravità per il feeling alla "Brain It On"
-        world.gravity.y = 1.2; 
+        world.gravity.y = 1.4; // Gravità leggermente aumentata per un feeling più reattivo
 
         const render = Render.create({
             element: document.body,
@@ -105,8 +102,7 @@
                 width: window.innerWidth,
                 height: window.innerHeight,
                 wireframes: false,
-                background: '#f0f4f8',
-                showVelocity: false
+                background: '#f0f4f8'
             }
         });
 
@@ -114,12 +110,11 @@
         const runner = Runner.create();
         Runner.run(runner, engine);
 
-        // --- LIMITI DEL MONDO (Pavimento e Muri) ---
+        // --- LIMITI DEL MONDO ---
         const wallOptions = { isStatic: true, render: { fillStyle: '#2c3e50' } };
         const ground = Bodies.rectangle(window.innerWidth / 2, window.innerHeight + 25, window.innerWidth * 2, 100, wallOptions);
         const leftWall = Bodies.rectangle(-25, window.innerHeight / 2, 50, window.innerHeight * 2, wallOptions);
         const rightWall = Bodies.rectangle(window.innerWidth + 25, window.innerHeight / 2, 50, window.innerHeight * 2, wallOptions);
-        
         Composite.add(world, [ground, leftWall, rightWall]);
 
         // --- LOGICA DI GESTIONE TRACCIATO ---
@@ -128,55 +123,58 @@
         
         let currentPoints = [];
         let isDrawing = false;
-        let isStaticMode = false; // Controlla se l'oggetto disegnato fluttua o cade
-        let spawnedObjects = [];  // Registro per la funzione Undo
+        let isStaticMode = false;
+        let spawnedObjects = []; // Contiene i gruppi di linee o palle per l'Undo
 
-        // Interruttori UI
+        // UI Eventi
         const modeBtn = document.getElementById('modeBtn');
-        modeBtn.addEventListener('click', () => {
+        modeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
             isStaticMode = !isStaticMode;
             modeBtn.textContent = isStaticMode ? "Tipo: Statico" : "Tipo: Dinamico";
             modeBtn.classList.toggle('active', !isStaticMode);
         });
 
-        document.getElementById('clearBtn').addEventListener('click', () => {
+        document.getElementById('clearBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
             spawnedObjects.forEach(obj => Composite.remove(world, obj));
             spawnedObjects = [];
         });
 
-        document.getElementById('undoBtn').addEventListener('click', () => {
+        document.getElementById('undoBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
             if (spawnedObjects.length > 0) {
                 const lastObj = spawnedObjects.pop();
                 Composite.remove(world, lastObj);
             }
         });
 
-        document.getElementById('spawnBallBtn').addEventListener('click', () => {
-            const ball = Bodies.circle(window.innerWidth / 2, 100, 25, {
-                density: 0.002,
-                restitution: 0.6,
+        document.getElementById('spawnBallBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const ball = Bodies.circle(window.innerWidth / 2, 80, 24, {
+                density: 0.01,
+                restitution: 0.4,
+                friction: 0.1,
                 render: { fillStyle: '#e67e22' }
             });
             Composite.add(world, ball);
             spawnedObjects.push(ball);
         });
 
-        // --- EVENTI DI INPUT (Touch & Mouse completi) ---
-        
-        // Rileva le coordinate corrette rispetto alla canvas
+        // --- GESTIONE INPUT OTTIMIZZATA PER MOBILE ---
         function getPointerPos(e) {
-            const rect = canvas.getBoundingClientRect();
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            return { x: clientX - rect.left, y: clientY - rect.top };
+            // Supporto nativo sia per touch che per mouse
+            const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+            const clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+            return { x: clientX, y: clientY };
         }
 
+        // Usiamo i PointerEvents standard, eccellenti su mobile
         window.addEventListener('pointerdown', (e) => {
-            // Evita di disegnare se si clicca sulla barra dei pulsanti
             if (e.target.closest('.toolbar')) return;
-            
             isDrawing = true;
-            currentPoints = [getPointerPos(e)];
+            const pos = getPointerPos(e);
+            currentPoints = [pos];
         });
 
         window.addEventListener('pointermove', (e) => {
@@ -185,9 +183,10 @@
             const pos = getPointerPos(e);
             const lastPos = currentPoints[currentPoints.length - 1];
             
-            // Filtro di prossimità per non accumulare troppi punti identici vicini
+            // Calcola la distanza dall'ultimo punto registrato
             const dist = Math.hypot(pos.x - lastPos.x, pos.y - lastPos.y);
-            if (dist > 8) { 
+            // Salva il punto solo se ci si è mossi abbastanza (riduce i calcoli inutili)
+            if (dist > 5) { 
                 currentPoints.push(pos);
             }
         });
@@ -197,71 +196,65 @@
             isDrawing = false;
             
             if (currentPoints.length > 1) {
-                creaOggettoFisicoDaTracciato(currentPoints);
+                creaOggettoFisicoSegmentato(currentPoints);
             }
             currentPoints = [];
         });
 
-        // --- CONVERSIONE LINEA -> CORPO RIGIDO ---
-        function creaOggettoFisicoDaTracciato(punti) {
-            // Spessore del tratto disegnato
-            const spessore = 10; 
-            const verticiTratto = [];
+        // --- CREAZIONE LINEA ROBUSTA A SEGMENTI CONCATENATI ---
+        function creaOggettoFisicoSegmentato(punti) {
+            const spessore = 10;
+            const segmenti = [];
 
-            // Generiamo un poligono che avvolge la linea simulando lo spessore dell'oggetto
-            for (let i = 0; i < punti.length; i++) {
-                const p = punti[i];
-                let normalX = 0, normalY = 0;
-
-                if (i < punti.length - 1) {
-                    const next = punti[i + 1];
-                    const dx = next.x - p.x;
-                    const dy = next.y - p.y;
-                    const len = Math.hypot(dx, dy);
-                    normalX = -dy / len;
-                    normalY = dx / len;
-                } else {
-                    const prev = punti[i - 1];
-                    const dx = p.x - prev.x;
-                    const dy = p.y - prev.y;
-                    const len = Math.hypot(dx, dy);
-                    normalX = -dy / len;
-                    normalY = dx / len;
-                }
-
-                verticiTratto.push({ x: p.x + normalX * spessore, y: p.y + normalY * spessore });
-                verticiTratto.unshift({ x: p.x - normalX * spessore, y: p.y - normalY * spessore });
-            }
-
-            // Creazione del corpo rigido (scompone automaticamente le parti concave)
-            const corpo = Bodies.fromVertices(0, 0, verticiTratto, {
+            // Opzioni estetiche e fisiche dei segmenti
+            const opzioniFisiche = {
                 isStatic: isStaticMode,
-                density: 0.005,
-                friction: 0.3,
+                density: 0.004,
+                friction: 0.4,
                 render: {
                     fillStyle: isStaticMode ? '#7f8c8d' : '#2ecc71',
-                    strokeStyle: isStaticMode ? '#95a5a6' : '#27ae60',
-                    lineWidth: 1
+                    strokeStyle: isStaticMode ? '#7f8c8d' : '#2ecc71'
                 }
-            }, true);
+            };
 
-            if (corpo) {
-                // Calcola il baricentro corretto calcolato da Matter.js e sposta l'oggetto sul tracciato reale
-                const centroGeometrico = Vertices.centre(verticiTratto);
-                Body.setPosition(corpo, centroGeometrico);
+            // Generiamo un rettangolo per ogni coppia di punti consecutivi
+            for (let i = 0; i < punti.length - 1; i++) {
+                const p1 = punti[i];
+                const p2 = punti[i + 1];
                 
-                Composite.add(world, corpo);
-                spawnedObjects.push(corpo);
+                const centroX = (p1.x + p2.x) / 2;
+                const centroY = (p1.y + p2.y) / 2;
+                const lunghezza = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+                const angolo = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+
+                const segmento = Bodies.rectangle(centroX, centroY, lunghezza, spessore, opzioniFisiche);
+                Body.setAngle(segmento, angolo);
+                segmenti.push(segmento);
+            }
+
+            // Se l'oggetto è dinamico, raggruppiamo i segmenti in un unico corpo rigido composto
+            // in modo che cadano insieme e mantengano la forma del disegno
+            if (segmenti.length > 0) {
+                let corpoFinale;
+                if (isStaticMode) {
+                    // Per gli oggetti statici possiamo semplicemente aggiungerli al mondo singolarmente
+                    corpoFinale = Body.create({ parts: segmenti, isStatic: true });
+                } else {
+                    // Per gli oggetti dinamici, formiamo un corpo composto unico
+                    corpoFinale = Body.create({ parts: segmenti });
+                }
+                
+                Composite.add(world, corpoFinale);
+                spawnedObjects.push(corpoFinale);
             }
         }
 
-        // --- RENDER IN TEMPO REALE DELLA LINEA GUIDA ---
-        // Usiamo l'evento afterRender di Matter.js per sovrapporre il disegno mentre l'utente muove il dito
+        // --- DISEGNO DELLA LINEA GUIDA DURANTE IL TRASCINAMENTO ---
         Matter.Events.on(render, 'afterRender', () => {
             if (isDrawing && currentPoints.length > 1) {
                 ctx.beginPath();
                 ctx.strokeStyle = isStaticMode ? 'rgba(127, 140, 141, 0.7)' : 'rgba(46, 204, 113, 0.7)';
-                ctx.lineWidth = 14;
+                ctx.lineWidth = 12;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
                 ctx.moveTo(currentPoints[0].x, currentPoints[0].y);
@@ -272,7 +265,7 @@
             }
         });
 
-        // Gestione ridimensionamento finestra/schermo smartphone
+        // Ridimensionamento dinamico dello schermo
         window.addEventListener('resize', () => {
             render.canvas.width = window.innerWidth;
             render.canvas.height = window.innerHeight;
